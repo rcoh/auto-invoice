@@ -10,11 +10,6 @@ from oauth2client.file import Storage
 
 from wrappers import Client
 
-SCOPES = 'https://www.googleapis.com/auth/gmail.send'
-CLIENT_SECRET_FILE = os.path.expanduser('~/.invoice/client_secret.json')
-APPLICATION_NAME = 'Gmail API Python Quickstart'
-
-
 def create_message_with_attachment(sender, to, subject, message_text, attachment_path, attachment_name):
     message = MIMEMultipart()
     message['to'] = to

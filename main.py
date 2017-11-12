@@ -163,7 +163,8 @@ def send_invoices():
         print(
             f'Invoicing from {invoice_since} ({invoice_since.strftime("%A")}) to {invoice_until} ({invoice_until.strftime("%A")})')
         summary = toggl.get_summary(client.workspace_id, client.client_id, since=invoice_since, until=invoice_until)
-        print(f'Total hours: {summary.work_hours:.2f}. Bill: ${summary.work_hours*client.rate_hourly}')
+        print(f'{client} Total hours: {summary.work_hours:.2f}. Bill: ${summary.work_hours*client.rate_hourly}')
+        input('OK?')
         if summary.work_hours > 0:
             invoice = xero.invoice(client, summary.work_hours, invoice_since, invoice_until)
             print('Invoice created')
@@ -171,6 +172,7 @@ def send_invoices():
             print(f'Link: {link}')
             pdf = toggl.get_summary_pdf(client.workspace_id, client.client_id, since=invoice_since, until=invoice_until)
             print(f'PDF: {pdf}')
+            input(f'Invoicing {client} (${link}).')
             gmail.send_invoice(client, invoice_since, invoice_until, link, pdf)
         client.set_last_invoice(invoice_until)
         persist_config()
