@@ -3,7 +3,7 @@ import tempfile
 
 class Summary:
     def __init__(self, json):
-        work_hours_raw = json['total_grand'] / 1000 / 60 / 60
+        work_hours_raw = (json['total_grand'] or 0) / 1000 / 60 / 60
         self.work_hours = round(work_hours_raw, 2)
         self.underlying = json
 
@@ -37,6 +37,15 @@ class Toggl:
 
     def list_clients(self):
         return self.query('/clients')
+
+    def check_for_unaccounted_time(self, workspace_id, since, until):
+        since_str = since.isoformat()
+        until_str = until.isoformat()
+        return Summary(self.query_reports('/summary', params={'user_agent': 'autoinvoice',
+                                                              'workspace_id': workspace_id,
+                                                              'project_ids': '0',
+                                                              'since': since_str,
+                                                              'until': until_str}).json())
 
     def get_summary(self, workspace_id, client_id, since, until):
         since_str = since.isoformat()

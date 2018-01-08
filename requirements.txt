@@ -3,3 +3,4 @@ google-api-python-client==1.6.4
 pyxero==0.9.0
 click==6.7
 prompt-toolkit==1.0.15
+nylas==3.0.0

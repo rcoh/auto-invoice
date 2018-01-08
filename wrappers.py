@@ -8,6 +8,7 @@ class Client(object):
         self.client_id = config.getint(section, 'client_id')
         self.invoice_period = config.getint(section, 'invoice_period_days')
         self.name = section[len('client.'):]
+        self.display_name = config.get(section, 'display_name')
         self.rate_hourly = config.getint(section, 'rate_hourly')
         self.contact_id = config.get(section, 'contact_id')
         self.account_code = config.get(section, 'account_code')
@@ -38,6 +39,9 @@ class Client(object):
         if self.next_invoice_end() is None:
             return True
         return date.today() > self.next_invoice_end()
+
+    def next_invoice(self):
+        return self.next_invoice_end() + timedelta(days=1)
 
     def __repr__(self):
         return f'Client[{self.name}]'

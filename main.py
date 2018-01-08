@@ -1,5 +1,8 @@
 import configparser
 import os
+import sys
+import subprocess
+import datetime
 
 import click
 from prompt_toolkit import prompt
@@ -90,13 +93,14 @@ def add_client():
     toggl = Toggl(config)
     xero = XeroWrapper(config)
     accounts = xero.accounts()
-    print(accounts)
     client_name = prompt('Name this client: ', validator=ClientIdValidator())
     section_name = f'client.{client_name}'
     if not config.has_section(section_name):
         config.add_section(section_name)
     else:
         print('Updating existing section!')
+
+    load_simple_field('display_name', section_name, 'Display name: ')
 
     print('Select a client')
     clients = toggl.list_clients()
@@ -150,6 +154,20 @@ def clients_to_be_invoiced():
             ret.append(client)
     return ret
 
+def next_invoices():
+    clients = [client for client in config.sections() if client.startswith('client.')]
+    ret = {}
+    for client_header in clients:
+        client = Client(config, client_header)
+        next_date = client.next_invoice()
+        ret[client.display_name] = next_date
+    return ret
+ 
+
+@cli.command()
+def test_email():
+    gmail = Gmail(config)
+    gmail.send('rcoh@rcoh.me', 'test email', Gmail.email_text('https://www.google.com', 'Russell R Cohen'), 'test.pdf', 'test_more_complex.pdf')
 
 @cli.command()
 def send_invoices():
@@ -162,16 +180,22 @@ def send_invoices():
         invoice_since, invoice_until = client.next_invoice_interval()
         print(
             f'Invoicing from {invoice_since} ({invoice_since.strftime("%A")}) to {invoice_until} ({invoice_until.strftime("%A")})')
+
+        unnaccounted = toggl.check_for_unaccounted_time(client.workspace_id, invoice_since, invoice_until)
+        if unnaccounted.work_hours != 0:
+            print(f'Found {unnaccounted.work_hours}h of unaccounted time. Please remove or tag with a project before continuing.')
+            sys.exit(1)
         summary = toggl.get_summary(client.workspace_id, client.client_id, since=invoice_since, until=invoice_until)
-        print(f'{client} Total hours: {summary.work_hours:.2f}. Bill: ${summary.work_hours*client.rate_hourly}')
-        input('OK?')
         if summary.work_hours > 0:
+            print(f'{client} Total hours: {summary.work_hours:.2f}. Bill: ${summary.work_hours*client.rate_hourly}')
+            input('OK?')
+            pdf = toggl.get_summary_pdf(client.workspace_id, client.client_id, since=invoice_since, until=invoice_until)
+            print(f'PDF: {pdf}')
+            subprocess.call(['open', pdf])
             invoice = xero.invoice(client, summary.work_hours, invoice_since, invoice_until)
             print('Invoice created')
             link = xero.get_share_link(invoice)
             print(f'Link: {link}')
-            pdf = toggl.get_summary_pdf(client.workspace_id, client.client_id, since=invoice_since, until=invoice_until)
-            print(f'PDF: {pdf}')
             input(f'Invoicing {client} (${link}).')
             gmail.send_invoice(client, invoice_since, invoice_until, link, pdf)
         client.set_last_invoice(invoice_until)
@@ -179,6 +203,14 @@ def send_invoices():
         print('Invoice sent! Config updated.')
     else:
         print('No clients need invoicing!')
+        print('Next invoice dates: ')
+        today = datetime.date.today()       
+        for name, date in sorted(next_invoices().items(), key=lambda kv: kv[1]):
+            diff = date - today
+            print(f'  {name}: {date} ({diff.days} days away)')
+
+
+        
 
 
 if __name__ == '__main__':

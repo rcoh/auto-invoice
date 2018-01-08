@@ -1,14 +1,17 @@
 import configparser
-import os
-import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from oauth2client.file import Storage
+import nylas
+from nylas import APIClient
+from nylas.client.errors import FileUploadError
+from nylas.client.restful_models import File
+from six import StringIO
 
 from wrappers import Client
+
 
 def create_message_with_attachment(sender, to, subject, message_text, attachment_path, attachment_name):
     message = MIMEMultipart()
@@ -28,57 +31,89 @@ def create_message_with_attachment(sender, to, subject, message_text, attachment
 
     return message
 
+def patched_save(self):  # pylint: disable=arguments-differ
+    print('running patched save')
+    stream = getattr(self, "stream", None)
+    if not stream:
+        data = getattr(self, "data", None)
+        if data:
+            stream = StringIO(data)
+
+    if not stream:
+        message = (
+            "File object not properly formatted, "
+            "must provide either a stream or data."
+        )
+        raise FileUploadError(message=message)
+
+    file_info = (
+        self.filename,
+        stream,
+        self.content_type,
+        {}, # upload headers
+    )
+
+    new_obj = self.api._create_resources(File, {"file": file_info})
+    new_obj = new_obj[0]
+    for attr in self.attrs:
+        if hasattr(new_obj, attr):
+            setattr(self, attr, getattr(new_obj, attr))
 
 class Gmail:
+
     def __init__(self, config: configparser.RawConfigParser):
         self.sender = config.get('email', 'sender')
         self.your_name = config.get('email', 'your_name')
-        self.password = config.get('email', 'password')
-        self.mailserver = config.get('email', 'mail_server')
+        self.nylas_client = APIClient(config.get('nylas', 'app_id'), config.get('nylas', 'app_secret'),
+                                      config.get('nylas', 'token'))
 
     def assert_credentials(self):
-        if not self.has_credentials():
-            raise Exception('No Gmail credentials')
+        pass
 
-    def has_credentials(self):
-        credential_path = os.path.expanduser('~/.invoice/gmail_token.json')
-
-        store = Storage(credential_path)
-        credentials = store.get()
-        return credentials and not credentials.invalid
-
-    def ensure_credentials(self):
-        """Gets valid user credentials from storage.
-
-        If nothing has been stored, or if the stored credentials are invalid,
-        the OAuth2 flow is completed to obtain the new credentials.
-
-        Returns:
-            Credentials, the obtained credential.
-        """
-        with smtplib.SMTP('smtp.gmail.com', 587) as s:
-            s.ehlo()
-            s.starttls()
-            s.ehlo()
-            s.login(self.sender, self.password)
-            s.close()
+    @staticmethod
+    def email_text(invoice_url, your_name):
+        return f'{invoice_url}<br>Thanks!<br>{your_name}<br>This invoice was generated automatically by https://github.com/rcoh/auto-invoice.'
 
     def send_invoice(self, client: Client, invoice_since, invoice_until, invoice_url, pdf_path):
         subject = f'Invoice {invoice_since:%m/%d/%y}-{invoice_until:%m/%d/%y}'
         attach_name = f'hours_{invoice_since:%m-%d-%y}_to_{invoice_until:%m-%d-%y}.pdf'
-        text = f'{invoice_url}\nThanks!\n{self.your_name}\nP.S: This invoice was generated automatically. If anything looks weird please let me know.'
-        message = create_message_with_attachment(sender=self.sender,
-                                                 to=client.email_addresses,
-                                                 subject=subject,
-                                                 message_text=text,
-                                                 attachment_path=pdf_path,
-                                                 attachment_name=attach_name)
+        text = Gmail.email_text(invoice_url, self.your_name)
 
-        with smtplib.SMTP('smtp.gmail.com', 587) as s:
-            s.ehlo()
-            s.starttls()
-            s.ehlo()
-            s.login(self.sender, self.password),
-            s.sendmail(self.sender, client.email_addresses, message.as_string())
-            s.close()
+        recipients = client.email_addresses.split(',')
+        self.send(recipients=recipients, subject=subject, message=text, attachment_path=pdf_path,
+                  attachment_name=attach_name)
         print("Email sent!")
+
+    def send(self, recipients, subject, message, attachment_path, attachment_name):
+        # Create the attachment
+        myfile = self.nylas_client.files.create()
+        myfile.content_type = 'application/pdf'
+        myfile.filename = attachment_name
+        with open(attachment_path, 'rb') as f:
+            myfile.stream = f
+            # To work around https://github.com/nylas/nylas-python/issues/95
+            patched_save(myfile)
+
+        myfile.filename = attachment_name
+        # Create a new draft
+        draft = self.nylas_client.drafts.create()
+        if type(recipients) == str:
+            recipients = [recipients]
+        draft.to = [{'email': recipient} for recipient in recipients]
+        draft.subject = subject
+        draft.body = message
+        draft.attach(myfile)
+
+        # Send it
+        try:
+            draft.send()
+        except nylas.client.errors.ConnectionError as e:
+            print("Unable to connect to the SMTP server.")
+        except nylas.client.errors.MessageRejectedError as e:
+            print("Message got rejected by the SMTP server!")
+            print(e.message)
+
+            # Sometimes the API gives us the exact error message
+            # returned by the server. Display it since it can be
+            # helpful to know exactly why our message got rejected:
+            print(e.server_error)

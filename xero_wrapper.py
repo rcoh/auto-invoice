@@ -40,7 +40,7 @@ class XeroWrapper:
             if input('Warning! Probable matching invoice exists. Proceed with this invoice? y/n') == 'y':
                 return matching_invoice[0]
         elif open_invoices and len(matching_invoice) == 0:
-            if input('Warning! Open invoices exist for this client but the total is different. Create another?') != 'y':
+            if input('Warning! Open invoices exist for this client but the total is different. Create another? y/n') != 'y':
                 return open_invoices[0]
         elif len(matching_invoice) > 1:
             if input('Multiple matching invoices! Abort? y/n') == 'y':
@@ -53,7 +53,7 @@ class XeroWrapper:
             Type='ACCREC',
             Contact=dict(ContactID=client.contact_id),
             LineItems=[dict(
-                Description=f'{client.name} contracting {since:%m/%d/%y} {until:%m/%d/%y}',
+                Description=f'{client.display_name} contracting {since:%m/%d/%y}-{until:%m/%d/%y}',
                 Quantity=hours,
                 UnitAmount=client.rate_hourly,
                 AccountCode=client.account_code
