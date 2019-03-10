@@ -41,6 +41,6 @@ python main.py add_client
 9. Send an invoice! It will find clients that need to be invoiced, and send them out.
 
 ```
-python main.py send_invoice
+python main.py send_invoices
 ```
 
