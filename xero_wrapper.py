@@ -1,6 +1,7 @@
 import configparser
 import datetime
 import os
+import tempfile
 from datetime import date
 from datetime import timedelta
 
@@ -74,4 +75,14 @@ class XeroWrapper:
         ).json()
         print(resp)
         return resp['OnlineInvoices'][0]['OnlineInvoiceUrl']
+
+    def get_pdf(self, invoice):
+        resp = requests.get(
+            f'{self.xero_url}Invoices/{invoice["InvoiceID"]}',
+            headers={'Accept': 'application/pdf'},
+            auth=self.credentials.oauth
+        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as f:
+            f.write(resp.content)
+        return f.name
 

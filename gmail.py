@@ -3,6 +3,7 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import List, Tuple
 
 import nylas
 from nylas import APIClient
@@ -31,6 +32,7 @@ def create_message_with_attachment(sender, to, subject, message_text, attachment
 
     return message
 
+
 def patched_save(self):  # pylint: disable=arguments-differ
     print('running patched save')
     stream = getattr(self, "stream", None)
@@ -50,7 +52,7 @@ def patched_save(self):  # pylint: disable=arguments-differ
         self.filename,
         stream,
         self.content_type,
-        {}, # upload headers
+        {},  # upload headers
     )
 
     new_obj = self.api._create_resources(File, {"file": file_info})
@@ -58,6 +60,7 @@ def patched_save(self):  # pylint: disable=arguments-differ
     for attr in self.attrs:
         if hasattr(new_obj, attr):
             setattr(self, attr, getattr(new_obj, attr))
+
 
 class Gmail:
 
@@ -74,27 +77,29 @@ class Gmail:
     def email_text(invoice_url, your_name):
         return f'{invoice_url}<br>Thanks!<br>{your_name}<br>This invoice was generated automatically by https://github.com/rcoh/auto-invoice.'
 
-    def send_invoice(self, client: Client, invoice_since, invoice_until, invoice_url, pdf_path):
+    def send_invoice(self, client: Client, invoice_since, invoice_until, invoice_url, toggle_pdf_path, xero_pdf_path):
         subject = f'Invoice {invoice_since:%m/%d/%y}-{invoice_until:%m/%d/%y}'
-        attach_name = f'hours_{invoice_since:%m-%d-%y}_to_{invoice_until:%m-%d-%y}.pdf'
+        toggl_attach_name = f'hours_{invoice_since:%m-%d-%y}_to_{invoice_until:%m-%d-%y}.pdf'
+        xero_attach_name = f'invoice_{invoice_since:%m-%d-%y}_to_{invoice_until:%m-%d-%y}.pdf'
         text = Gmail.email_text(invoice_url, self.your_name)
 
         recipients = client.email_addresses.split(',')
-        self.send(recipients=recipients, subject=subject, message=text, attachment_path=pdf_path,
-                  attachment_name=attach_name)
+        self.send(recipients=recipients, subject=subject, message=text,
+                  attachments=[(toggle_pdf_path, toggl_attach_name), (xero_pdf_path, xero_attach_name)])
         print("Email sent!")
 
-    def send(self, recipients, subject, message, attachment_path, attachment_name):
+    def send(self, recipients, subject, message, attachments: List[Tuple[str, str]]):  # attachment_path, attachment_name):
         # Create the attachment
-        myfile = self.nylas_client.files.create()
-        myfile.content_type = 'application/pdf'
-        myfile.filename = attachment_name
-        with open(attachment_path, 'rb') as f:
-            myfile.stream = f
-            # To work around https://github.com/nylas/nylas-python/issues/95
-            patched_save(myfile)
+        for attachment_path, attachment_name in attachments:
+            myfile = self.nylas_client.files.create()
+            myfile.content_type = 'application/pdf'
+            myfile.filename = attachment_name
+            with open(attachment_path, 'rb') as f:
+                myfile.stream = f
+                # To work around https://github.com/nylas/nylas-python/issues/95
+                patched_save(myfile)
 
-        myfile.filename = attachment_name
+            myfile.filename = attachment_name
         # Create a new draft
         draft = self.nylas_client.drafts.create()
         if type(recipients) == str:
